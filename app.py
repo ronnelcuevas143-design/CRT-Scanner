@@ -212,7 +212,7 @@ header    { visibility: hidden; }
 # ─────────────────────────────────────────────────────
 #  CONSTANTS
 # ─────────────────────────────────────────────────────
-API_BASE = "https://fapi.binance.com"
+
 
 TIMEFRAMES = {
     "1M": "1M",
@@ -231,13 +231,34 @@ TV_INTERVAL = {
 }
 
 # ─────────────────────────────────────────────────────
-#  BINANCE API
+#  BINANCE API  (with mirror fallback for geo-blocks)
 # ─────────────────────────────────────────────────────
+API_MIRRORS = [
+    "https://fapi.binance.com",
+    "https://fapi1.binance.com",
+    "https://fapi2.binance.com",
+    "https://fapi3.binance.com",
+]
+
+@st.cache_data(ttl=120)
+def get_working_base() -> str:
+    """Return first Binance mirror that responds to ping."""
+    for mirror in API_MIRRORS:
+        try:
+            r = requests.get(f"{mirror}/fapi/v1/ping", timeout=6)
+            if r.ok:
+                return mirror
+        except Exception:
+            continue
+    return API_MIRRORS[0]
+
+
 @st.cache_data(ttl=300)
 def get_futures_symbols():
     """Get all USDT-M perpetual futures symbols."""
+    base = get_working_base()
     try:
-        r = requests.get(f"{API_BASE}/fapi/v1/exchangeInfo", timeout=10)
+        r = requests.get(f"{base}/fapi/v1/exchangeInfo", timeout=15)
         r.raise_for_status()
         data = r.json()
         symbols = [
@@ -255,10 +276,11 @@ def get_futures_symbols():
 
 def get_klines(symbol: str, tf_label: str, limit: int = 3):
     """Fetch klines for a symbol and timeframe."""
+    base     = get_working_base()
     interval = TIMEFRAMES[tf_label]
     try:
         r = requests.get(
-            f"{API_BASE}/fapi/v1/klines",
+            f"{base}/fapi/v1/klines",
             params={"symbol": symbol, "interval": interval, "limit": limit},
             timeout=8,
         )
